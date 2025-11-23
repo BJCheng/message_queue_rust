@@ -1,6 +1,6 @@
 use std::{
     fs::{File, OpenOptions},
-    io::{self, Result, Write},
+    io::{self, Read, Result, Seek, Write},
 };
 
 use crate::message::Message;
@@ -34,5 +34,20 @@ impl Segment {
         self.file.flush()?;
 
         Ok(message_length)
+    }
+
+    pub fn read_from(&mut self, offset: u64) -> Result<Message> {
+        self.file.seek(io::SeekFrom::Start(offset))?;
+
+        let mut next_msg_len_buffer = [0u8; 4];
+        self.file.read_exact(&mut next_msg_len_buffer)?;
+        let next_msg_length = u32::from_le_bytes(next_msg_len_buffer) as usize;
+
+        let mut next_msg_buffer = vec![0u8; next_msg_length];
+        self.file.read_exact(&mut next_msg_buffer)?;
+        let message = bincode::deserialize(&next_msg_buffer)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        Ok(message)
     }
 }
