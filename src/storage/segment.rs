@@ -36,6 +36,7 @@ impl Segment {
         Ok(message_length)
     }
 
+    // todo: handle error gracefully by using the match on Result
     pub fn read_from(&mut self, offset: u64) -> Result<Message> {
         self.file.seek(io::SeekFrom::Start(offset))?;
 
