@@ -1,6 +1,6 @@
 use std::{
     fs::{File, OpenOptions},
-    io::{self, Read, Result, Seek, Write},
+    io::{self, Read, Result, Seek, SeekFrom, Write},
 };
 
 use crate::message::Message;
@@ -24,7 +24,9 @@ impl Segment {
         })
     }
 
-    pub fn append(&mut self, message: Message) -> io::Result<u32> {
+    pub fn append(&mut self, message: Message) -> io::Result<u64> {
+        let offset = self.file.seek(SeekFrom::End(0))?;
+
         let message_encoded =
             bincode::serialize(&message).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
         let message_length = message_encoded.len() as u32;
@@ -33,7 +35,7 @@ impl Segment {
         self.file.write_all(&message_encoded)?;
         self.file.flush()?;
 
-        Ok(message_length)
+        Ok(offset + 1)
     }
 
     // todo: handle error gracefully by using the match on Result
@@ -50,5 +52,33 @@ impl Segment {
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
         Ok(message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use crate::{message::Message, storage::segment::Segment};
+
+    #[test]
+    fn test_append() {
+        let first_msg_value = "hello";
+        let message = Message::new(String::from(first_msg_value));
+        let mut segment = Segment::new(String::from("test.dat")).unwrap();
+        let second_msg_offset = segment.append(message).unwrap();
+
+        println!("second message offset: {}", second_msg_offset);
+
+        let message_read = segment.read_from(0).unwrap();
+        assert_eq!(message_read.value, first_msg_value);
+
+        let second_message_value = ", world!";
+        let second_message = Message::new(String::from(second_message_value));
+        segment.append(second_message).unwrap();
+        let second_msg_read = segment.read_from(second_msg_offset).unwrap();
+        assert_eq!(second_msg_read.value, second_message_value);
+
+        fs::remove_file("./test.dat").unwrap();
     }
 }
