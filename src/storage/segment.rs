@@ -1,6 +1,7 @@
 use std::{
-    fs::{File, OpenOptions},
-    io::{self, ErrorKind, Read, Result, Seek, SeekFrom, Write},
+    fs::{File, OpenOptions, create_dir_all},
+    io::{self, ErrorKind, Read, Seek, SeekFrom, Write},
+    path::PathBuf,
 };
 
 use crate::message::Message;
@@ -11,7 +12,13 @@ pub struct Segment {
 }
 
 impl Segment {
-    pub fn new(path: String) -> Result<Self> {
+    pub const DEFAULT_LOG_PATH: &str = "00000.dat";
+
+    pub fn new(path: PathBuf) -> io::Result<Self> {
+        if let Some(parent) = path.parent() {
+            create_dir_all(parent)?;
+        }
+
         let file = OpenOptions::new()
             .create(true)
             .read(true)
@@ -20,14 +27,11 @@ impl Segment {
 
         Ok(Self {
             file,
-            is_active: false,
+            is_active: true,
         })
     }
 
-    pub fn append(&mut self, message: Message) -> io::Result<u64> {
-        let offset = self.file.seek(SeekFrom::Start(0))?;
-        // todo: get message position by offset
-
+    pub fn append(&mut self, message: &Message) -> io::Result<u64> {
         let message_encoded =
             bincode::serialize(&message).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
         let message_length = message_encoded.len() as u32;
@@ -37,11 +41,13 @@ impl Segment {
         self.file.write_all(&message_encoded)?;
         self.file.flush()?;
 
-        Ok(offset + 1)
+        Ok(message.offset + 1)
     }
 
     // todo: handle error gracefully by using the match on Result
-    pub fn read_from(&mut self, offset: u64) -> Result<Message> {
+    /// # Arguments
+    /// * offset - return the message with specified offset
+    pub fn read_from(&mut self, offset: u64) -> io::Result<Message> {
         self.file.seek(io::SeekFrom::Start(0))?;
 
         loop {
@@ -86,7 +92,7 @@ impl Segment {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, path::PathBuf};
 
     use crate::{message::Message, storage::segment::Segment};
 
@@ -94,19 +100,20 @@ mod tests {
     fn test_append() {
         let first_msg_value = "hello";
         let message = Message::new(0, String::from(first_msg_value));
-        let mut segment = Segment::new(String::from("test.dat")).unwrap();
-        segment.append(message).unwrap();
+        let mut segment = Segment::new(PathBuf::from("test.dat")).unwrap();
+        segment.append(&message).unwrap();
 
         let message_read = segment.read_from(0).unwrap();
         assert_eq!(message_read.value, first_msg_value);
 
         let second_message_value = ", world!";
         let second_message = Message::new(1, String::from(second_message_value));
-        segment.append(second_message).unwrap();
+        segment.append(&second_message).unwrap();
 
         let second_msg_read = segment.read_from(1).unwrap();
         assert_eq!(second_msg_read.value, second_message_value);
 
+        // todo: call this method when assertions are failed
         fs::remove_file("./test.dat").unwrap();
     }
 }
