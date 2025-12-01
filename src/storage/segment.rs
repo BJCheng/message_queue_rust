@@ -1,20 +1,22 @@
 use std::{
     fs::{File, OpenOptions, create_dir_all},
-    io::{self, ErrorKind, Read, Seek, SeekFrom, Write},
+    io::{self, ErrorKind, Read, Seek, Write},
     path::PathBuf,
 };
 
 use crate::message::Message;
 
 pub struct Segment {
+    pub base_offset: u64,
     pub file: File,
     pub is_active: bool,
 }
 
 impl Segment {
     pub const DEFAULT_LOG_PATH: &str = "00000.dat";
+    const DEFAULT_MESSAGE_COUNT: u32 = 5;
 
-    pub fn new(path: PathBuf) -> io::Result<Self> {
+    pub fn new(base_offset: u64, path: PathBuf) -> io::Result<Self> {
         if let Some(parent) = path.parent() {
             create_dir_all(parent)?;
         }
@@ -26,6 +28,7 @@ impl Segment {
             .open(path)?;
 
         Ok(Self {
+            base_offset,
             file,
             is_active: true,
         })
@@ -88,6 +91,11 @@ impl Segment {
         )
         .into())
     }
+
+    pub fn contains_offset(&self, offset: u64) -> bool {
+        offset >= self.base_offset
+            && offset - self.base_offset <= Self::DEFAULT_MESSAGE_COUNT.into()
+    }
 }
 
 #[cfg(test)]
@@ -100,7 +108,7 @@ mod tests {
     fn test_append() {
         let first_msg_value = "hello";
         let message = Message::new(0, String::from(first_msg_value));
-        let mut segment = Segment::new(PathBuf::from("test.dat")).unwrap();
+        let mut segment = Segment::new(0, PathBuf::from("test.dat")).unwrap();
         segment.append(&message).unwrap();
 
         let message_read = segment.read_from(0).unwrap();
