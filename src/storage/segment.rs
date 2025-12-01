@@ -38,7 +38,6 @@ impl Segment {
         let message_encoded =
             bincode::serialize(&message).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
         let message_length = message_encoded.len() as u32;
-        println!("appending message with length: {}", message_length);
 
         self.file.write_all(&message_length.to_le_bytes())?;
         self.file.write_all(&message_encoded)?;

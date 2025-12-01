@@ -13,9 +13,11 @@ pub struct Topic {
 }
 
 impl Topic {
+    // todo: read from current .dat file to see if this topic exists already
+    //       also read the current write offset
+    //       also create a write method to wirte the current topic status into a physical file
     pub fn new(name: String) -> Self {
-        let base_path =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("src/data/{}", &name));
+        let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("data/{}", &name));
 
         let first_segment_result = Segment::new(0, base_path.join(Segment::DEFAULT_LOG_PATH));
 
