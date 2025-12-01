@@ -1,13 +1,18 @@
+use serde::{Deserialize, Serialize};
+
 use crate::message::Message;
 use crate::storage::segment::Segment;
 use std::{
+    fs,
     io::{self, ErrorKind},
     path::PathBuf,
 };
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Topic {
     name: String,
     base_directory: PathBuf,
+    #[serde(skip)]
     segments: Vec<Segment>,
     next_offset: u64,
 }
@@ -56,6 +61,42 @@ impl Topic {
     pub fn read(&mut self, offset: u64) -> io::Result<Message> {
         let segment = self.find_segment(offset);
         segment.read_from(offset)
+    }
+
+    pub fn write(&self) -> io::Result<()> {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("data/{}/metadata.json", self.name));
+        let json = serde_json::to_string(self).unwrap_or_else(|e| {
+            panic!(
+                "cannot serialize Topic: {} to json string. Error: {}",
+                self.name, e
+            )
+        });
+        fs::write(path, json).unwrap_or_else(|e| {
+            panic!(
+                "cannot write Topic: {} to local storage. Error: {}",
+                self.name, e
+            )
+        });
+        Ok(())
+    }
+
+    pub fn load(topic_name: &str) -> io::Result<Self> {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("data/{}/metadata.json", topic_name));
+        let json_string = fs::read_to_string(path).unwrap_or_else(|e| {
+            panic!(
+                "cannot read json string for topic: {}. Error: {}",
+                topic_name, e
+            )
+        });
+        let topic: Topic = serde_json::from_str(&json_string).unwrap_or_else(|e| {
+            panic!(
+                "cannot deserialize from json string to Topic for topic: {}. Error: {}",
+                topic_name, e
+            )
+        });
+        Ok(topic)
     }
 
     fn find_active_segment(&mut self) -> Option<&mut Segment> {
@@ -129,5 +170,17 @@ mod tests {
         });
 
         assert_eq!(msg_read.value, msg2);
+    }
+
+    #[test]
+    pub fn test_json_serde() {
+        let topic = &mut Topic::new(String::from("serde_testing_topic"));
+        topic.next_offset = 100;
+        topic.write().unwrap();
+
+        let topic_read = Topic::load("serde_testing_topic").unwrap();
+
+        assert_eq!(topic_read.name, "serde_testing_topic");
+        assert_eq!(topic_read.next_offset, 100);
     }
 }

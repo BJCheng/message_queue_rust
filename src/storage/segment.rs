@@ -6,6 +6,7 @@ use std::{
 
 use crate::message::Message;
 
+#[derive(Debug)]
 pub struct Segment {
     pub base_offset: u64,
     pub file: File,
