@@ -21,24 +21,20 @@ impl Topic {
     // todo: read from current .dat file to see if this topic exists already
     //       also read the current write offset
     //       also create a write method to wirte the current topic status into a physical file
-    pub fn new(name: String) -> Self {
-        let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("data/{}", &name));
+    pub fn new(name: String) -> io::Result<Self> {
+        let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("data")
+            .join(&name);
 
-        let first_segment_result = Segment::new(0, base_path.join(Segment::DEFAULT_LOG_PATH));
+        let first_segment_path = base_path.join(Segment::DEFAULT_LOG_PATH);
+        let first_segment = Segment::new(0, first_segment_path)?;
 
-        let first_segment = match first_segment_result {
-            Ok(s) => s,
-            Err(e) => {
-                panic!("not able to create first segment: {}", e)
-            }
-        };
-
-        Topic {
+        Ok(Topic {
             name,
             base_directory: base_path,
             segments: vec![first_segment],
             next_offset: 0,
-        }
+        })
     }
 
     /// # Returns
@@ -68,24 +64,26 @@ impl Topic {
     pub fn write(&self) -> io::Result<()> {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join(format!("data/{}/metadata.json", self.name));
-        let json = serde_json::to_string(self).unwrap_or_else(|e| {
-            panic!(
-                "cannot serialize Topic: {} to json string. Error: {}",
-                self.name, e
+
+        let json = serde_json::to_string(self).map_err(|e| {
+            io::Error::new(
+                ErrorKind::InvalidData,
+                format!(
+                    "cannot serialize Topic: {} to json string. Error: {}",
+                    self.name, e
+                ),
             )
-        });
-        fs::write(path, json).unwrap_or_else(|e| {
-            panic!(
-                "cannot write Topic: {} to local storage. Error: {}",
-                self.name, e
-            )
-        });
+        })?;
+
+        fs::write(path, json)?;
+
         Ok(())
     }
 
     pub fn load(topic_name: &str) -> io::Result<Self> {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join(format!("data/{}/metadata.json", topic_name));
+
         let json_string = fs::read_to_string(path).unwrap_or_else(|e| {
             panic!(
                 "cannot read json string for topic: {}. Error: {}",
@@ -93,35 +91,47 @@ impl Topic {
             )
         });
 
-        let mut topic: Topic = serde_json::from_str(&json_string).unwrap_or_else(|e| {
-            panic!(
-                "cannot deserialize from json string to Topic for topic: {}. Error: {}",
-                topic_name, e
+        let mut topic: Topic = serde_json::from_str(&json_string).map_err(|e| {
+            io::Error::new(
+                ErrorKind::InvalidData,
+                format!(
+                    "cannot deserialize from json string to Topic for topic: {}. Error: {}",
+                    topic_name, e
+                ),
             )
-        });
+        })?;
 
-        topic.load_segments();
+        topic.load_segments()?;
 
         Ok(topic)
     }
 
-    fn load_segments(&mut self) {
+    fn load_segments(&mut self) -> io::Result<()> {
         let mut loaded_segments = Vec::new();
-        for entry in fs::read_dir(&self.base_directory).unwrap() {
-            let path = entry.unwrap().path();
-            if let Some(extension) = path.extension() {
-                if extension.to_str() == Some("dat") {
-                    let segment = Segment::load(path).unwrap();
-                    loaded_segments.push(segment);
-                }
-            };
+
+        for entry in fs::read_dir(&self.base_directory)? {
+            let path = entry?.path();
+
+            // if let Some(extension) = path.extension() {
+            //     if extension.to_str() == Some("dat") {
+            //         let segment = Segment::load(path).unwrap();
+            //         loaded_segments.push(segment);
+            //     }
+            // };
+
+            if path.extension().and_then(|s| s.to_str()) == Some("dat") {
+                let segment = Segment::load(path)?;
+                loaded_segments.push(segment);
+            }
         }
+
         self.segments = loaded_segments;
+
+        Ok(())
     }
 
     fn find_active_segment(&mut self) -> Option<&mut Segment> {
-        let active_segment = self.segments.iter_mut().find(|s| s.is_active);
-        active_segment
+        self.segments.iter_mut().find(|s| s.is_active)
     }
 
     fn find_segment(&mut self, offset: u64) -> &mut Segment {
@@ -139,14 +149,14 @@ mod tests {
 
     #[test]
     fn test_append() {
-        let mut my_topic = Topic::new(String::from("my_topic"));
+        let mut my_topic = Topic::new(String::from("my_topic")).unwrap();
         let next_offset = my_topic.append(String::from("my topic's first message"));
         assert_eq!(next_offset.unwrap(), 1);
     }
 
     #[test]
     fn test_append_and_read() {
-        let mut my_second_topic = Topic::new(String::from("my_second_topic"));
+        let mut my_second_topic = Topic::new(String::from("my_second_topic")).unwrap();
 
         let msg = "message in the second topic";
         let next_offset = my_second_topic
@@ -194,7 +204,7 @@ mod tests {
 
     #[test]
     pub fn test_json_serde() {
-        let topic = &mut Topic::new(String::from("serde_testing_topic"));
+        let topic = &mut Topic::new(String::from("serde_testing_topic")).unwrap();
         topic.next_offset = 99;
         topic.write().unwrap();
 

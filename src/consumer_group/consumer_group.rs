@@ -40,7 +40,7 @@ mod test {
     #[test]
     fn test_append_read() {
         // create a topic for this test, and save it for being read later
-        let topic = Topic::new(String::from("the_topic_to_test_consumer_group"));
+        let topic = Topic::new(String::from("the_topic_to_test_consumer_group")).unwrap();
         topic.write().unwrap();
 
         let mut consumer_group = ConsumerGroup::new("testing_consumer_group");
