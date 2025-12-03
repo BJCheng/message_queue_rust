@@ -1,5 +1,5 @@
 use std::{
-    fs::{File, OpenOptions, create_dir_all},
+    fs::{self, File, OpenOptions, create_dir_all, read},
     io::{self, ErrorKind, Read, Seek, Write},
     path::PathBuf,
 };
@@ -35,7 +35,50 @@ impl Segment {
         })
     }
 
+    pub fn load(path: PathBuf) -> io::Result<Self> {
+        let file_name = path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                io::Error::new(
+                    ErrorKind::NotFound,
+                    format!(
+                        "cannot find the file name part from the path: {}",
+                        path.to_str().unwrap()
+                    ),
+                )
+            })
+            .unwrap();
+        let base_offset: u64 = file_name.parse().unwrap_or_else(|e| {
+            panic!(
+                "cannot read the base_offset from file name: {}. Error: {}",
+                &file_name, e
+            )
+        });
+        let file = OpenOptions::new()
+            .read(true)
+            .append(true)
+            .open(&path)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "cannot open the file with path: {}. Error: {}",
+                    path.to_str().unwrap(),
+                    e
+                )
+            });
+        Ok(Segment {
+            base_offset,
+            file,
+            // todo: part of the is_active fix
+            is_active: true,
+        })
+    }
+
     pub fn append(&mut self, message: &Message) -> io::Result<u64> {
+        println!(
+            "======segment writing message with offset: {}=====",
+            message.offset
+        );
         let message_encoded =
             bincode::serialize(&message).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
         let message_length = message_encoded.len() as u32;
@@ -82,6 +125,8 @@ impl Segment {
             })?;
             if message.offset == offset {
                 return Ok(message);
+            } else {
+                println!("found message with offset: {}", &message.offset);
             }
         }
 
@@ -123,5 +168,15 @@ mod tests {
 
         // todo: call this method when assertions are failed
         fs::remove_file("./test.dat").unwrap();
+    }
+
+    #[test]
+    fn test_load() {
+        let segment = Segment::load(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data/my_topic/00000.dat"),
+        )
+        .unwrap();
+        assert!(segment.is_active);
+        assert_eq!(segment.base_offset, 0);
     }
 }

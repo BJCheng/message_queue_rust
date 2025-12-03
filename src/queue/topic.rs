@@ -41,6 +41,8 @@ impl Topic {
         }
     }
 
+    /// # Returns
+    /// * Next offset from this topic
     pub fn append(&mut self, payload: String) -> io::Result<u64> {
         let message = Message::new(self.next_offset, payload);
 
@@ -90,13 +92,31 @@ impl Topic {
                 topic_name, e
             )
         });
-        let topic: Topic = serde_json::from_str(&json_string).unwrap_or_else(|e| {
+
+        let mut topic: Topic = serde_json::from_str(&json_string).unwrap_or_else(|e| {
             panic!(
                 "cannot deserialize from json string to Topic for topic: {}. Error: {}",
                 topic_name, e
             )
         });
+
+        topic.load_segments();
+
         Ok(topic)
+    }
+
+    fn load_segments(&mut self) {
+        let mut loaded_segments = Vec::new();
+        for entry in fs::read_dir(&self.base_directory).unwrap() {
+            let path = entry.unwrap().path();
+            if let Some(extension) = path.extension() {
+                if extension.to_str() == Some("dat") {
+                    let segment = Segment::load(path).unwrap();
+                    loaded_segments.push(segment);
+                }
+            };
+        }
+        self.segments = loaded_segments;
     }
 
     fn find_active_segment(&mut self) -> Option<&mut Segment> {
@@ -175,12 +195,13 @@ mod tests {
     #[test]
     pub fn test_json_serde() {
         let topic = &mut Topic::new(String::from("serde_testing_topic"));
-        topic.next_offset = 100;
+        topic.next_offset = 99;
         topic.write().unwrap();
 
         let topic_read = Topic::load("serde_testing_topic").unwrap();
 
         assert_eq!(topic_read.name, "serde_testing_topic");
-        assert_eq!(topic_read.next_offset, 100);
+        assert_eq!(topic_read.next_offset, 99);
+        assert_eq!(topic.segments.len(), 1);
     }
 }
